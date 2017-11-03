@@ -41,42 +41,45 @@ import java.util.concurrent.TimeUnit;
 
 
 public class CalorieHistory {
-    
+
     private ReactContext mReactContext;
     private GoogleFitManager googleFitManager;
-    
+
     private static final String TAG = "CalorieHistory";
-    
+
     public CalorieHistory(ReactContext reactContext, GoogleFitManager googleFitManager){
         this.mReactContext = reactContext;
         this.googleFitManager = googleFitManager;
     }
-    
+
     public ReadableArray aggregateDataByDate(long startTime, long endTime) {
-        
+
         DateFormat dateFormat = DateFormat.getDateInstance();
         Log.i(TAG, "Range Start: " + dateFormat.format(startTime));
         Log.i(TAG, "Range End: " + dateFormat.format(endTime));
-        
+
         //Check how much calories were expended in specific days.
         DataReadRequest readRequest = new DataReadRequest.Builder()
         .aggregate(DataType.TYPE_CALORIES_EXPENDED, DataType.AGGREGATE_CALORIES_EXPENDED)
         .bucketByTime(1, TimeUnit.DAYS)
         .setTimeRange(startTime, endTime, TimeUnit.MILLISECONDS)
         .build();
-        
+
         DataReadResult dataReadResult = Fitness.HistoryApi.readData(googleFitManager.getGoogleApiClient(), readRequest).await(1, TimeUnit.MINUTES);
-        
-        
+
+
         WritableArray map = Arguments.createArray();
-        
+
         //Used for aggregated data
         if (dataReadResult.getBuckets().size() > 0) {
             Log.i(TAG, "Number of buckets: " + dataReadResult.getBuckets().size());
             for (Bucket bucket : dataReadResult.getBuckets()) {
-                List<DataSet> dataSets = bucket.getDataSets();
-                for (DataSet dataSet : dataSets) {
-                    processDataSet(dataSet, map);
+                String bucketActivity = bucket.getActivity();
+                if (bucketActivity.contains(FitnessActivities.WALKING) || bucketActivity.contains(FitnessActivities.RUNNING)) {
+                    List<DataSet> dataSets = bucket.getDataSets();
+                    for (DataSet dataSet : dataSets) {
+                        processDataSet(dataSet, map);
+                    }
                 }
             }
         }
@@ -87,11 +90,11 @@ public class CalorieHistory {
                 processDataSet(dataSet, map);
             }
         }
-        
+
         return map;
     }
-    
-    
+
+
     // utility function that gets the basal metabolic rate averaged over a week
     private float getBasalAVG(long _et) throws Exception {
         float basalAVG = 0;
@@ -100,15 +103,15 @@ public class CalorieHistory {
         //set start time to a week before end time
         cal.add(Calendar.WEEK_OF_YEAR, -1);
         long nst = cal.getTimeInMillis();
-        
+
         DataReadRequest.Builder builder = new DataReadRequest.Builder();
         builder.aggregate(DataType.TYPE_BASAL_METABOLIC_RATE, DataType.AGGREGATE_BASAL_METABOLIC_RATE_SUMMARY);
         builder.bucketByTime(1, TimeUnit.DAYS);
         builder.setTimeRange(nst, _et, TimeUnit.MILLISECONDS);
         DataReadRequest readRequest = builder.build();
-        
+
         DataReadResult dataReadResult = Fitness.HistoryApi.readData(googleFitManager.getGoogleApiClient(), readRequest).await();
-        
+
         if (dataReadResult.getStatus().isSuccess()) {
             JSONObject obj = new JSONObject();
             int avgsN = 0;
@@ -127,29 +130,29 @@ public class CalorieHistory {
             return basalAVG;
         } else throw new Exception(dataReadResult.getStatus().getStatusMessage());
     }
-    
-    
+
+
     private void processDataSet(DataSet dataSet, WritableArray map) {
         Log.i(TAG, "Data returned for Data type: " + dataSet.getDataType().getName());
         DateFormat dateFormat = DateFormat.getDateInstance();
         DateFormat timeFormat = DateFormat.getTimeInstance();
         Format formatter = new SimpleDateFormat("EEE");
         WritableMap stepMap = Arguments.createMap();
-        
-        
+
+
         for (DataPoint dp : dataSet.getDataPoints()) {
             Log.i(TAG, "Data point:");
             Log.i(TAG, "\tType: " + dp.getDataType().getName());
             Log.i(TAG, "\tStart: " + dateFormat.format(dp.getStartTime(TimeUnit.MILLISECONDS)) + " " + timeFormat.format(dp.getStartTime(TimeUnit.MILLISECONDS)));
             Log.i(TAG, "\tEnd: " + dateFormat.format(dp.getEndTime(TimeUnit.MILLISECONDS)) + " " + timeFormat.format(dp.getStartTime(TimeUnit.MILLISECONDS)));
-            
+
             String day = formatter.format(new Date(dp.getStartTime(TimeUnit.MILLISECONDS)));
             Log.i(TAG, "Day: " + day);
-            
+
             for(Field field : dp.getDataType().getFields()) {
                 Log.i("History", "\tField: " + field.getName() +
                       " Value: " + dp.getValue(field));
-                
+
                 stepMap.putString("day", day);
                 stepMap.putDouble("startDate", dp.getStartTime(TimeUnit.MILLISECONDS));
                 stepMap.putDouble("endDate", dp.getEndTime(TimeUnit.MILLISECONDS));
@@ -164,5 +167,5 @@ public class CalorieHistory {
             }
         }
     }
-    
+
 }
