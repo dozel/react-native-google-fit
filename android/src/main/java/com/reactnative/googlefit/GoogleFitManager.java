@@ -11,20 +11,25 @@
 package com.reactnative.googlefit;
 
 import android.app.Activity;
+import android.app.Dialog;
 import android.content.Intent;
 import android.content.IntentSender;
+import android.content.DialogInterface;
 import android.os.Bundle;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.util.Log;
 
 import com.facebook.react.bridge.ActivityEventListener;
+import com.facebook.react.bridge.Callback;
 import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.ReactContext;
 import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.modules.core.DeviceEventManagerModule;
 import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.GoogleApiAvailability;
 import com.google.android.gms.common.Scopes;
+import com.google.android.gms.common.ErrorDialogFragment;
 import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.common.api.ResultCallback;
 import com.google.android.gms.common.api.Scope;
@@ -33,42 +38,38 @@ import com.google.android.gms.fitness.Fitness;
 
 
 public class GoogleFitManager implements
-        GoogleApiClient.ConnectionCallbacks,
-        GoogleApiClient.OnConnectionFailedListener,
         ActivityEventListener {
 
     private ReactContext mReactContext;
     private GoogleApiClient mApiClient;
-    private static final int REQUEST_OAUTH = 1;
+    private static final int REQUEST_OAUTH = 1001;
     private static final String AUTH_PENDING = "auth_state_pending";
-    private boolean authInProgress = false;
-    private Activity activity;
+    private static boolean mAuthInProgress = false;
+    private Activity mActivity;
 
-
+    private DistanceHistory distanceHistory;
     private StepHistory stepHistory;
     private WeightsHistory weightsHistory;
-    private StepCounter stepCounter;
+    private CalorieHistory calorieHistory;
+    private StepCounter mStepCounter;
     private StepSensor stepSensor;
 
-    private static final String TAG = "GoogleFitManager";
+    private static final String TAG = "RNGoogleFit";
 
     public GoogleFitManager(ReactContext reactContext, Activity activity) {
 
-        //Log.i(TAG, "Initializing GoogleFitManager" + authInProgress);
+        //Log.i(TAG, "Initializing GoogleFitManager" + mAuthInProgress);
         this.mReactContext = reactContext;
-        this.activity = activity;
-
+        this.mActivity = activity;
 
         mReactContext.addActivityEventListener(this);
 
-
-        this.stepCounter = new StepCounter(mReactContext, this, activity);
+        this.mStepCounter = new StepCounter(mReactContext, this, activity);
         this.stepHistory = new StepHistory(mReactContext, this);
         this.weightsHistory = new WeightsHistory(mReactContext, this);
-
-//        this.stepSensor = new StepSensor(mReactContext, activity);
-
-
+        this.distanceHistory = new DistanceHistory(mReactContext, this);
+        this.calorieHistory = new CalorieHistory(mReactContext, this);
+        //        this.stepSensor = new StepSensor(mReactContext, activity);
     }
 
     public GoogleApiClient getGoogleApiClient() {
@@ -76,7 +77,7 @@ public class GoogleFitManager implements
     }
 
     public StepCounter getStepCounter() {
-        return stepCounter;
+        return mStepCounter;
     }
 
     public StepHistory getStepHistory() {
@@ -87,8 +88,20 @@ public class GoogleFitManager implements
         return weightsHistory;
     }
 
+    public DistanceHistory getDistanceHistory() {
+        return distanceHistory;
+    }
 
-    public void authorize() {
+    public void resetAuthInProgress()
+    {
+        if (!isAuthorize()) {
+            mAuthInProgress = false;
+        }
+    }
+
+    public CalorieHistory getCalorieHistory() { return calorieHistory; }
+
+    public void authorize(@Nullable final Callback errorCallback, @Nullable final Callback successCallback) {
 
         //Log.i(TAG, "Authorizing");
         mApiClient = new GoogleApiClient.Builder(mReactContext.getApplicationContext())
@@ -96,32 +109,59 @@ public class GoogleFitManager implements
                 .addApi(Fitness.HISTORY_API)
                 .addScope(new Scope(Scopes.FITNESS_ACTIVITY_READ))
                 .addScope(new Scope(Scopes.FITNESS_BODY_READ_WRITE))
-                .addConnectionCallbacks(this)
-                .addOnConnectionFailedListener(this)
+                .addScope(new Scope(Scopes.FITNESS_LOCATION_READ))
+                .addConnectionCallbacks(
+                    new GoogleApiClient.ConnectionCallbacks() {
+                        @Override
+                        public void onConnected(@Nullable Bundle bundle) {
+                            Log.i(TAG, "Authorization - Connected");
+
+                            //sendEvent(this.mReactContext, "AuthorizeEvent", map);
+                            if (successCallback != null) {
+                                WritableMap map = Arguments.createMap();
+                                map.putBoolean("authorized", true);
+                                successCallback.invoke(map);
+                            }
+                        }
+
+                        @Override
+                        public void onConnectionSuspended(int i) {
+                            Log.i(TAG, "Authorization - Connection Suspended");
+                            if ((mApiClient != null) && (mApiClient.isConnected())) {
+                                mApiClient.disconnect();
+                            }
+                        }
+                    }
+                )
+                .addOnConnectionFailedListener(
+                    new GoogleApiClient.OnConnectionFailedListener() {
+                        @Override
+                        public void onConnectionFailed(@NonNull ConnectionResult connectionResult) {
+                            Log.i(TAG, "Authorization - Failed Authorization Mgr:" + connectionResult);
+                            if (mAuthInProgress) {
+                                Log.i(TAG, "Authorization - Already attempting to resolve an error.");
+                                //if (errorCallback != null) {
+                                //    errorCallback.invoke("Failed Authorization Mgr");
+                                //}
+                            } else if (connectionResult.hasResolution()) {
+                                try {
+                                    mAuthInProgress = true;
+                                    connectionResult.startResolutionForResult(mActivity, REQUEST_OAUTH);
+                                } catch (IntentSender.SendIntentException e) {
+                                    Log.i(TAG, "Authorization - Failed again: " + e);
+                                    mApiClient.connect();
+                                }
+                            } else {
+                                Log.i(TAG, "Show dialog using GoogleApiAvailability.getErrorDialog()");
+                                showErrorDialog(connectionResult.getErrorCode());
+                                mAuthInProgress = true;
+                            }
+                        }
+                    }
+                )
                 .build();
 
         mApiClient.connect();
-    }
-
-
-    @Override
-    public void onConnected(@Nullable Bundle bundle) {
-        //Log.i(TAG, "Connected");
-
-        //stepCounter.findFitnessDataSources();
-        WritableMap map = Arguments.createMap();
-        map.putBoolean("authorized", true);
-        sendEvent(this.mReactContext, "AuthorizeEvent", map);
-
-    }
-
-
-    @Override
-    public void onConnectionSuspended(int i) {
-        //Log.i("AuthorizationMgr", "Connection Suspended");
-        if ((mApiClient != null) && (mApiClient.isConnected())) {
-            mApiClient.disconnect();
-        }
     }
 
     public boolean isAuthorize() {
@@ -132,26 +172,8 @@ public class GoogleFitManager implements
         }
     }
 
-    @Override
-    public void onConnectionFailed(@NonNull ConnectionResult connectionResult) {
-        //Log.i(TAG, "Failed Authorization Mgr:" + connectionResult);
-        if (!authInProgress) {
-            try {
-                authInProgress = true;
-                connectionResult.startResolutionForResult(this.activity, REQUEST_OAUTH);
-            } catch (IntentSender.SendIntentException e) {
-                Log.i(TAG, "Failed again: " + e);
-            }
-        }// else {
-        //Log.i(TAG, "authInProgress");
-        //}
-
-    }
-
-
-
     protected void stop() {
-        Fitness.SensorsApi.remove(mApiClient, stepCounter)
+        Fitness.SensorsApi.remove(mApiClient, mStepCounter)
                 .setResultCallback(new ResultCallback<Status>() {
                     @Override
                     public void onResult(Status status) {
@@ -174,26 +196,46 @@ public class GoogleFitManager implements
 
     @Override
     public void onActivityResult(Activity activity, int requestCode, int resultCode, Intent data) {
-        //Log.i(TAG, "onActivityResult" + requestCode);
         if (requestCode == REQUEST_OAUTH) {
-            authInProgress = false;
+            mAuthInProgress = false;
             if (resultCode == Activity.RESULT_OK) {
+                // Make sure the app is not already connected or attempting to connect
                 if (!mApiClient.isConnecting() && !mApiClient.isConnected()) {
                     mApiClient.connect();
                 }
             } else if (resultCode == Activity.RESULT_CANCELED) {
-                //Log.e(TAG, "RESULT_CANCELED");
-                this.authorize();
-                //mApiClient.connect();
+                Log.e(TAG, "Authorization - Cancel");
             }
-        } //else {
-        //Log.e(TAG, "requestCode NOT request_oauth");
-        //}
-
+        }
     }
 
     @Override
     public void onNewIntent(Intent intent) {
+    }
 
+    public static class GoogleFitCustomErrorDialig extends ErrorDialogFragment {
+        @Override
+        public Dialog onCreateDialog(Bundle savedInstanceState) {
+            // Get the error code and retrieve the appropriate dialog
+            int errorCode = this.getArguments().getInt(AUTH_PENDING);
+            return GoogleApiAvailability.getInstance().getErrorDialog(
+                    this.getActivity(), errorCode, REQUEST_OAUTH);
+        }
+
+        @Override
+        public void onCancel(DialogInterface dialog) {
+            mAuthInProgress = false;
+        }
+    }
+
+    /* Creates a dialog for an error message */
+    private void showErrorDialog(int errorCode) {
+        // Create a fragment for the error dialog
+        GoogleFitCustomErrorDialig dialogFragment = new GoogleFitCustomErrorDialig();
+        // Pass the error that should be displayed
+        Bundle args = new Bundle();
+        args.putInt(AUTH_PENDING, errorCode);
+        dialogFragment.setArguments(args);
+        dialogFragment.show(mActivity.getFragmentManager(), "errordialog");
     }
 }

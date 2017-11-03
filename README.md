@@ -7,6 +7,28 @@ A React Native bridge module for interacting with Google Fit
 Changelog:
 
 ```
+0.3.5   - Fix Error: Fragments should be static
+        - Updated readme
+
+0.3.4   - Burned Calories History (getDailyCalorieSamples)
+
+0.3.2 
+        - React Native 0.46 Support
+        
+0.3.1-beta 
+        - better cancel/deny support
+        
+0.3.0-beta (@firodj thanks for this PR!)
+        - steps adapter to avoid errors;
+        - authorize: allow cancel;
+        - authorize: using callback instead event;
+        - strict dataSource;
+        - xiaomi support; 
+
+0.2.0   - getDailyDistanceSamples();
+        - isAvailable();
+        - isEnabled();
+        - deleteWeight(); 
 0.1.1-beta
         - getDailyStepCountSamples method compatible with Apple Healthkit module
         - started to implement JSDoc documentation
@@ -71,36 +93,43 @@ then pass your package name to the module in MainApplication.java (google fit re
 2. Authorize:
 
 ```      
-        GoogleFit.authorizeFit();
-        GoogleFit.onAuthorize((result) => {
-             //console.log(result);
+        GoogleFit.authorize((err, result) => {
+             if(err) {
+                 dispatch('AUTH ERROR');
+                 return;
+             }
              dispatch('AUTH SUCCESS');
         });
  ```
  
 3. Retrieve Steps For Period
  
- GoogleFit.getSteps(dayStart, dayEnd);
+    **GoogleFit.getDailyStepCountSamples** 
  
- REDUX example
+ ```javascript
+    const options = {
+                startDate: "2017-01-01T00:00:17.971Z",  // required ISO8601Timestamp
+                endDate: (new Date()).toISOString()     // required ISO8601Timestamp
+            };
+
+    GoogleFit.getDailyStepCountSamples(options, (err, res) => {
+                    if (err) {
+                        throw err;
+                    }
+                    console.log("Daily steps >>>", res);
+            })
  
  ```
     
-    let retrieveDailySteps = () => {
-        return async (dispatch) => {
-            let todayStart = "2017-01-01T00:00:17.971Z"; //ISO Time String
-            let dayEnd = "2017-01-01T23:59:17.971Z"; //ISO Time String
-            await GoogleFit.getSteps(todayStart, dayEnd);
-            await GoogleFit.observeHistory((results) => {
-                if (results.length > 0) {
-                    console.log(results[0].steps);
-                    dispatch('SUCCESSFULLY GOT DAILY STEPS!');
-                } 
-            });
-        }
-    }
- 
- ```
+   **Response:**
+    
+ ```javascript
+[ 
+    {source: "com.google.android.gms:estimated_steps", steps: []},
+    {source: "com.google.android.gms:merge_step_deltas", steps: []},
+    {source: "com.xiaomi.hm.health", steps: []}
+]
+```
 
 4. Retrieve Weights
 
@@ -112,6 +141,7 @@ then pass your package name to the module in MainApplication.java (google fit re
                 endDate: (new Date()).toISOString(),				// required
                 ascending: false									// optional; default false
              };
+             
  GoogleFit.getWeightSamples(opt, (err,res) => {
         console.log(res);
  });
@@ -138,10 +168,19 @@ then pass your package name to the module in MainApplication.java (google fit re
 6. Other methods:
  
  ``` 
- GoogleFit.observeSteps(callback); //On Step Changed Event
+ observeSteps(callback); //On Step Changed Event
  
- GoogleFit.unsucscribeListeners(); //Put into componentWillUnmount() method to prevent leaks
+ unsucscribeListeners(); //Put into componentWillUnmount() method to prevent leaks
+
+ getDailyCalorieSamples(options, callback); - method to get calories per day
  
+ getDailyDistanceSamples(options, callback); - method to get daily distance
+ 
+ isAvailable(callback); - Checks is GoogleFit available for current account / installed on device
+ 
+ isEnabled(callback); - Checks is permissions granted
+ 
+ deleteWeight(options, callback); - method to delete weights by options (same as in save weights)
  
  ```
  

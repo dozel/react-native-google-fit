@@ -12,6 +12,7 @@ package com.reactnative.googlefit;
 
 import android.app.Activity;
 import android.content.pm.PackageManager;
+import android.util.Log;
 
 import com.facebook.react.bridge.Callback;
 import com.facebook.react.bridge.ReactApplicationContext;
@@ -19,96 +20,157 @@ import com.facebook.react.bridge.ReactContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
 import com.facebook.react.bridge.ReadableMap;
+import com.facebook.react.bridge.WritableMap;
+import com.facebook.react.bridge.Arguments;
+import com.facebook.react.bridge.LifecycleEventListener;
 import com.facebook.react.uimanager.IllegalViewOperationException;
 
 
-public class GoogleFitModule extends ReactContextBaseJavaModule {
-
+public class GoogleFitModule extends ReactContextBaseJavaModule implements
+LifecycleEventListener {
+    
     private static final String REACT_MODULE = "RNGoogleFit";
     private ReactContext mReactContext;
-    private GoogleFitManager googleFitManager = null;
+    private GoogleFitManager mGoogleFitManager = null;
     private String GOOGLE_FIT_APP_URI = "com.google.android.apps.fitness";
-
+    
     public GoogleFitModule(ReactApplicationContext reactContext) {
         super(reactContext);
-
+        
         this.mReactContext = reactContext;
     }
-
-
+    
+    
     @Override
     public String getName() {
         return REACT_MODULE;
     }
-
-    @ReactMethod
-    public void authorize() {
-        final Activity activity = getCurrentActivity();
-
-        if(googleFitManager == null) {
-            googleFitManager = new GoogleFitManager(mReactContext, activity);
-        }
-
-        googleFitManager.authorize();
+    
+    @Override
+    public void initialize() {
+        super.initialize();
+        
+        getReactApplicationContext().addLifecycleEventListener(this);
     }
-
+    
+    @Override
+    public void onHostResume() {
+        if (mGoogleFitManager != null) {
+            mGoogleFitManager.resetAuthInProgress();
+        }
+    }
+    
+    @Override
+    public void onHostPause() {
+    }
+    
+    @Override
+    public void onHostDestroy() {
+    }
+    
+    @ReactMethod
+    public void authorize(Callback error, Callback success) {
+        final Activity activity = getCurrentActivity();
+        
+        if (mGoogleFitManager == null) {
+            mGoogleFitManager = new GoogleFitManager(mReactContext, activity);
+        }
+        
+        if (mGoogleFitManager.isAuthorize()) {
+            Log.i("RNGITESHBRO", "Authorization - already authorized");
+            WritableMap map = Arguments.createMap();
+            map.putBoolean("authorized", true);
+            success.invoke(map);
+            return;
+        }
+        Log.i("RNGITESHBRO", "Authorization - starting");
+        mGoogleFitManager.authorize(error, success);
+    }
+    
     @ReactMethod
     public void observeSteps() {
-        googleFitManager.getStepCounter().findFitnessDataSources();
+        mGoogleFitManager.getStepCounter().findFitnessDataSources();
     }
-
+    
     @ReactMethod
     public void getDailySteps(double startDay, double endDay) {
-        googleFitManager.getStepHistory().displayLastWeeksData((long)startDay, (long)endDay);
+        mGoogleFitManager.getStepHistory().displayLastWeeksData((long)startDay, (long)endDay);
     }
-
+    
     @ReactMethod
     public void getWeeklySteps(double startDate, double endDate) {
-        googleFitManager.getStepHistory().displayLastWeeksData((long)startDate, (long)endDate);
+        mGoogleFitManager.getStepHistory().displayLastWeeksData((long)startDate, (long)endDate);
     }
-
+    
     @ReactMethod
     public void getDailyStepCountSamples(double startDate,
-                                 double endDate,
-                                 Callback errorCallback,
-                                 Callback successCallback) {
-
+                                         double endDate,
+                                         Callback errorCallback,
+                                         Callback successCallback) {
+        
         try {
-            successCallback.invoke(googleFitManager.getStepHistory().aggregateDataByDate((long)startDate, (long)endDate));
+            successCallback.invoke(mGoogleFitManager.getStepHistory().aggregateDataByDate((long)startDate, (long)endDate));
         } catch (IllegalViewOperationException e) {
             errorCallback.invoke(e.getMessage());
         }
     }
-
+    
+    @ReactMethod
+    public void getDailyDistanceSamples(double startDate,
+                                        double endDate,
+                                        Callback errorCallback,
+                                        Callback successCallback) {
+        
+        try {
+            successCallback.invoke(mGoogleFitManager.getDistanceHistory().aggregateDataByDate((long)startDate, (long)endDate));
+        } catch (IllegalViewOperationException e) {
+            errorCallback.invoke(e.getMessage());
+        }
+    }
+    
     @ReactMethod
     public void getWeightSamples(double startDate,
                                  double endDate,
                                  Callback errorCallback,
                                  Callback successCallback) {
-
+        
         try {
-            successCallback.invoke(googleFitManager.getWeightsHistory().displayLastWeeksData((long)startDate, (long)endDate));
+            successCallback.invoke(mGoogleFitManager.getWeightsHistory().displayLastWeeksData((long)startDate, (long)endDate));
         } catch (IllegalViewOperationException e) {
             errorCallback.invoke(e.getMessage());
         }
     }
-
+    
+    
+    @ReactMethod
+    public void getDailyCalorieSamples(double startDate,
+                                       double endDate,
+                                       Callback errorCallback,
+                                       Callback successCallback) {
+        
+        try {
+            successCallback.invoke(mGoogleFitManager.getCalorieHistory().aggregateDataByDate((long)startDate, (long)endDate));
+        } catch (IllegalViewOperationException e) {
+            errorCallback.invoke(e.getMessage());
+        }
+    }
+    
     @ReactMethod
     public void saveWeight(ReadableMap weightSample,
                            Callback errorCallback,
                            Callback successCallback) {
-
+        
         try {
-            successCallback.invoke(googleFitManager.getWeightsHistory().saveWeight(weightSample));
+            successCallback.invoke(mGoogleFitManager.getWeightsHistory().saveWeight(weightSample));
         } catch (IllegalViewOperationException e) {
             errorCallback.invoke(e.getMessage());
         }
     }
-
+    
     @ReactMethod
     public void deleteWeight(ReadableMap weightSample, Callback errorCallback, Callback successCallback) {
         try {
-            successCallback.invoke(googleFitManager.getWeightsHistory().deleteWeight(weightSample));
+            successCallback.invoke(mGoogleFitManager.getWeightsHistory().deleteWeight(weightSample));
         } catch (IllegalViewOperationException e) {
             errorCallback.invoke(e.getMessage());
         }
@@ -143,10 +205,10 @@ public class GoogleFitModule extends ReactContextBaseJavaModule {
     }
 
     private boolean isEnabledCheck() {
-        if (googleFitManager == null) {
-            googleFitManager = new GoogleFitManager(mReactContext, getCurrentActivity());
+        if (mGoogleFitManager == null) {
+            mGoogleFitManager = new GoogleFitManager(mReactContext, getCurrentActivity());
         }
-        return googleFitManager.isAuthorize();
+        return mGoogleFitManager.isAuthorize();
     }
 
 }
